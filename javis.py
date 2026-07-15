@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-JAVIS - Just A Very Intelligent System
-An AI Assistant Combining Features of Modern AI Coding Agents
+JAVIS - Just A Very Intelligent System (Enhanced)
+An AI Assistant Combining Features of Modern AI Coding Agents with LLM Integration
 Inspired by: Claude Code, Codex, Cursor, Gemini, ChatGPT, NVIDIA tools, and Antigravity-IDE
-Features: Conversational AI, Code Assistance, System Diagnostics (Including GPU), File Operations, Data Analysis
+Features: Conversational AI, Code Assistance, System Diagnostics (Including GPU), File Operations, Data Analysis, Persistent Learning, LLM Integration
 """
 
 import os
@@ -16,23 +16,38 @@ import subprocess
 import platform
 import re
 from typing import Dict, List, Any, Optional, Tuple
+import requests  # For LLM API calls
 
 # ==================== CONFIGURATION ====================
 
 CONFIG = {
     "name": "JAVIS",
-    "version": "1.0.0",
+    "version": "2.1.0",  # Upgraded version with LLM support
     "creator": "Inspired by Claude Code, Codex, Cursor, Gemini, ChatGPT, NVIDIA",
     "max_history": 50,
     "file_size_limit": 1024 * 1024,  # 1MB
     "display_limit": 1500,
     "code_sandbox_dir": "./code_sandbox",
+    "data_dir": "./javis_data",
+    "knowledge_file": "custom_knowledge.json",
+    "preferences_file": "user_preferences.json",
+    "facts_file": "learned_facts.json",
+    # LLM Configuration
+    "llm_provider": None,  # Options: "openai", "anthropic", "huggingface", "local"
+    "llm_api_key": None,   # Will be loaded from environment variable or config file
+    "llm_model": None,     # Default model for the provider
+    "llm_max_tokens": 1000,
+    "llm_temperature": 0.7,
+    # Environment variable names for API keys
+    "env_openai_key": "OPENAI_API_KEY",
+    "env_anthropic_key": "ANTHROPIC_API_KEY",
+    "env_huggingface_key": "HUGGINGFACE_API_KEY",
 }
 
 # ==================== MAIN ASSISTANT CLASS ====================
 
 class JAVIS:
-    """Just A Very Intelligent System - Universal AI Assistant with coding agent capabilities"""
+    """Just A Very Intelligent System - Enhanced Universal AI Assistant with coding agent capabilities and LLM integration"""
     
     def __init__(self):
         self.name = CONFIG["name"]
@@ -41,16 +56,28 @@ class JAVIS:
         self.conversation_history = []
         self.user_name = None
         self.session_start = datetime.datetime.now()
-        self.knowledge_base = self._load_knowledge_base()
         self.code_sandbox = CONFIG["code_sandbox_dir"]
+        self.data_dir = CONFIG["data_dir"]
+        
+        # Create necessary directories
         os.makedirs(self.code_sandbox, exist_ok=True)
+        os.makedirs(self.data_dir, exist_ok=True)
+        
+        # Load data
+        self.knowledge_base = self._load_knowledge_base()
+        self.custom_knowledge = self._load_custom_knowledge()
+        self.user_preferences = self._load_user_preferences()
+        self.learned_facts = self._load_learned_facts()
+        
+        # Load LLM configuration from environment
+        self._load_llm_config()
         
         # Response templates
         self.greetings = [
-            f"Hello! I'm {self.name} v{self.version}, your AI coding assistant. How can I help you today?",
+            f"Hello! I'm {self.name} v{self.version}, your enhanced AI coding assistant. How can I help you today?",
             f"Hi there! Ready to assist with coding, questions, calculations, or just chat. What's on your mind?",
             f"Greetings! I combine capabilities of modern AI coding agents to help you develop software efficiently.",
-            f"Hey! I'm {self.name}. I can write code, explain concepts, analyze files, and help with debugging."
+            f"Hey! I'm {self.name}. I can write code, explain concepts, analyze files, help with debugging, and even learn from our conversations."
         ]
         
         self.farewells = [
@@ -85,6 +112,34 @@ class JAVIS:
             "Premature optimization is the root of all evil. - Donald Knuth",
             "Measuring programming progress by lines of code is like measuring aircraft building progress by weight. - Bill Gates"
         ]
+    
+    # ==================== CONFIGURATION LOADING ====================
+    
+    def _load_llm_config(self):
+        """Load LLM configuration from environment variables"""
+        # Check for LLM provider in environment
+        provider = os.environ.get("JAVIS_LLM_PROVIDER")
+        if provider in ["openai", "anthropic", "huggingface", "local"]:
+            CONFIG["llm_provider"] = provider
+        
+        # Check for API keys
+        if CONFIG["llm_provider"] == "openai":
+            CONFIG["llm_api_key"] = os.environ.get(CONFIG["env_openai_key"])
+            CONFIG["llm_model"] = os.environ.get("JAVIS_LLM_MODEL", "gpt-3.5-turbo")
+        elif CONFIG["llm_provider"] == "anthropic":
+            CONFIG["llm_api_key"] = os.environ.get(CONFIG["env_anthropic_key"])
+            CONFIG["llm_model"] = os.environ.get("JAVIS_LLM_MODEL", "claude-3-haiku-20240307")
+        elif CONFIG["llm_provider"] == "huggingface":
+            CONFIG["llm_api_key"] = os.environ.get(CONFIG["env_huggingface_key"])
+            CONFIG["llm_model"] = os.environ.get("JAVIS_LLM_MODEL", "HuggingFaceH4/zephyr-7b-beta")
+        # For local, we might check for a local server URL
+        elif CONFIG["llm_provider"] == "local":
+            CONFIG["llm_api_key"] = os.environ.get("JAVIS_LLM_API_KEY", "not-needed-for-local")
+            CONFIG["llm_model"] = os.environ.get("JAVIS_LLM_MODEL", "local-model")
+            # Could also set a local endpoint
+            # CONFIG["llm_api_base"] = os.environ.get("JAVIS_LLM_API_BASE", "http://localhost:8080")
+    
+    # ==================== DATA PERSISTENCE ====================
     
     def _load_knowledge_base(self) -> Dict[str, str]:
         """Load the AI's knowledge base focused on coding, AI, and general knowledge"""
@@ -133,7 +188,7 @@ class JAVIS:
             "code_review": "Code review is the systematic examination (sometimes known as peer review) of computer source code.",
             "pair_programming": "Pair programming is an agile software development technique in which two programmers work together at one workstation.",
             "test_driven_development": "Test-driven development (TDD) is a software development process that relies on the repetition of a very short development cycle: requirements are turned into very specific test cases, then the code is improved so that the tests pass.",
-            "continuous_integration": "Continuous Integration (CI) is the practice of automating the integration of code changes from multiple contributors into a single software project.",
+            "continuous_integration": "Continuous Integration (CI) is the practice of the integration of code changes from multiple contributors into a single software project.",
             "devops": "DevOps is a set of practices that combines software development (Dev) and IT operations (Ops).",
             
             # General Knowledge
@@ -153,6 +208,77 @@ class JAVIS:
             "javis_universal_capabilities": "JAVIS combines conversational AI, code assistance, system diagnostics (including GPU/NVIDIA), file operations, and data analysis to assist with software development and general tasks.",
             "javis_version": f"This is {self.name} version {self.version}.",
         }
+    
+    def _load_custom_knowledge(self) -> Dict[str, str]:
+        """Load user-customized knowledge"""
+        filepath = os.path.join(self.data_dir, CONFIG["knowledge_file"])
+        try:
+            if os.path.exists(filepath):
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load custom knowledge: {e}")
+        return {}
+    
+    def _save_custom_knowledge(self):
+        """Save user-customized knowledge"""
+        filepath = os.path.join(self.data_dir, CONFIG["knowledge_file"])
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(self.custom_knowledge, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save custom knowledge: {e}")
+    
+    def _load_user_preferences(self) -> Dict[str, Any]:
+        """Load user preferences"""
+        filepath = os.path.join(self.data_dir, CONFIG["preferences_file"])
+        defaults = {
+            "theme": "default",
+            "response_verbosity": "medium",  # low, medium, high
+            "show_timestamps": False,
+            "code_explanation_detail": "medium"
+        }
+        try:
+            if os.path.exists(filepath):
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    prefs = json.load(f)
+                    # Merge with defaults
+                    for key, value in defaults.items():
+                        if key not in prefs:
+                            prefs[key] = value
+                    return prefs
+        except Exception as e:
+            print(f"Warning: Could not load user preferences: {e}")
+        return defaults
+    
+    def _save_user_preferences(self):
+        """Save user preferences"""
+        filepath = os.path.join(self.data_dir, CONFIG["preferences_file"])
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(self.user_preferences, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save user preferences: {e}")
+    
+    def _load_learned_facts(self) -> List[Dict[str, Any]]:
+        """Learn facts from conversation"""
+        filepath = os.path.join(self.data_dir, CONFIG["facts_file"])
+        try:
+            if os.path.exists(filepath):
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load learned facts: {e}")
+        return []
+    
+    def _save_learned_facts(self):
+        """Save learned facts"""
+        filepath = os.path.join(self.data_dir, CONFIG["facts_file"])
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(self.learned_facts, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save learned facts: {e}")
     
     # ==================== CORE FUNCTIONALITY ====================
     
@@ -243,6 +369,61 @@ Error getting detailed info: {str(e)}"""
         # If we get here, no NVIDIA GPU detected via common methods
         return None
     
+    def _get_git_info(self) -> str:
+        """Get Git repository information"""
+        try:
+            # Check if we're in a git repository
+            result = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode != 0 or result.stdout.strip() != 'true':
+                return "Not a Git repository."
+            
+            info = "📦 **Git Repository Information**\n"
+            
+            # Get current branch
+            result = subprocess.run(['git', 'branch', '--show-current'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                branch = result.stdout.strip()
+                info += f"   Current branch: {branch}\n"
+            
+            # Get remote origin URL
+            result = subprocess.run(['git', 'remote', 'get-url', 'origin'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                remote = result.stdout.strip()
+                info += f"   Remote origin: {remote}\n"
+            else:
+                info += "   Remote origin: Not set\n"
+            
+            # Get last commit
+            result = subprocess.run(['git', 'log', '-1', '--pretty=format:%h %s (%an, %ar)'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                last_commit = result.stdout.strip()
+                info += f"   Last commit: {last_commit}\n"
+            else:
+                info += "   Last commit: Unable to retrieve\n"
+            
+            # Get status (staged/changes)
+            result = subprocess.run(['git', 'status', '--porcelain'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                status = result.stdout.strip()
+                if not status:
+                    info += "   Working tree: Clean\n"
+                else:
+                    # Count changes
+                    lines = status.split('\n')
+                    modified = len(lines)
+                    info += f"   Working tree: {len(lines)} change(s)\n"
+            else:
+                info += "   Working tree: Unable to retrieve status\n"
+            
+            return info.strip()
+        except Exception as e:
+            return f"Error getting Git info: {str(e)}"
+    
     def _calculate_expression(self, expression: str) -> str:
         """Safely evaluate a mathematical expression"""
         try:
@@ -280,19 +461,260 @@ Error getting detailed info: {str(e)}"""
         """Retrieve information from knowledge base"""
         query_lower = query.lower().strip()
         
-        # Direct lookup
+        # Check built-in knowledge base
         for key, value in self.knowledge_base.items():
+            if key in query_lower or query_lower in key:
+                return value
+        
+        # Check custom knowledge
+        for key, value in self.custom_knowledge.items():
             if key in query_lower or query_lower in key:
                 return value
         
         # Pattern matching for common questions
         if any(word in query_lower for word in ['what is', 'what are', 'define', 'definition', 'explain', 'how does']):
-            # Extract the concept being asked about
+            # Check built-in knowledge
             for key, value in self.knowledge_base.items():
+                if key.replace('_', ' ') in query_lower:
+                    return value
+            # Check custom knowledge
+            for key, value in self.custom_knowledge.items():
                 if key.replace('_', ' ') in query_lower:
                     return value
         
         return None
+    
+    def _llm_available(self) -> bool:
+        """Check if LLM is configured and available"""
+        return (CONFIG["llm_provider"] is not None and 
+                CONFIG["llm_api_key"] is not None and
+                len(CONFIG["llm_api_key"]) > 0)
+    
+    def _query_llm(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """Query the configured LLM provider"""
+        if not self._llm_available():
+            return "LLM not configured. Please set up LLM provider and API key."
+        
+        try:
+            if CONFIG["llm_provider"] == "openai":
+                return self._query_openai(prompt, system_prompt)
+            elif CONFIG["llm_provider"] == "anthropic":
+                return self._query_anthropic(prompt, system_prompt)
+            elif CONFIG["llm_provider"] == "huggingface":
+                return self._query_huggingface(prompt, system_prompt)
+            elif CONFIG["llm_provider"] == "local":
+                return self._query_local(prompt, system_prompt)
+            else:
+                return f"Unsupported LLM provider: {CONFIG['llm_provider']}"
+        except Exception as e:
+            return f"Error querying LLM: {str(e)}"
+    
+    def _query_openai(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """Query OpenAI API"""
+        if not CONFIG["llm_api_key"]:
+            return "OpenAI API key not configured."
+        
+        headers = {
+            "Authorization": f"Bearer {CONFIG['llm_api_key']}",
+            "Content-Type": "application/json"
+        }
+        
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        
+        data = {
+            "model": CONFIG["llm_model"] or "gpt-3.5-turbo",
+            "messages": messages,
+            "max_tokens": CONFIG["llm_max_tokens"],
+            "temperature": CONFIG["llm_temperature"]
+        }
+        
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result["choices"][0]["message"]["content"].strip()
+        else:
+            return f"OpenAI API error: {response.status_code} - {response.text}"
+    
+    def _query_anthropic(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """Query Anthropic Claude API"""
+        if not CONFIG["llm_api_key"]:
+            return "Anthropic API key not configured."
+        
+        headers = {
+            "x-api-key": CONFIG["llm_api_key"],
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01"
+        }
+        
+        # Anthropic expects a slightly different format
+        data = {
+            "model": CONFIG["llm_model"] or "claude-3-haiku-20240307",
+            "max_tokens": CONFIG["llm_max_tokens"],
+            "temperature": CONFIG["llm_temperature"],
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        
+        if system_prompt:
+            data["system"] = system_prompt
+        
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result["content"][0]["text"].strip()
+        else:
+            return f"Anthropic API error: {response.status_code} - {response.text}"
+    
+    def _query_huggingface(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """Query Hugging Face Inference API"""
+        if not CONFIG["llm_api_key"]:
+            return "Hugging Face API key not configured."
+        
+        headers = {
+            "Authorization": f"Bearer {CONFIG['llm_api_key']}",
+            "Content-Type": "application/json"
+        }
+        
+        # Format prompt for Hugging Face (some models expect specific format)
+        full_prompt = prompt
+        if system_prompt:
+            full_prompt = f"{system_prompt}\n\n{prompt}"
+        
+        data = {
+            "inputs": full_prompt,
+            "parameters": {
+                "max_new_tokens": CONFIG["llm_max_tokens"],
+                "temperature": CONFIG["llm_temperature"],
+                "return_full_text": False
+            }
+        }
+        
+        # Using the inference API endpoint
+        api_url = f"https://api-inference.huggingface.co/models/{CONFIG['llm_model']}"
+        
+        response = requests.post(
+            api_url,
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            # Handle different response formats
+            if isinstance(result, list) and len(result) > 0:
+                if "generated_text" in result[0]:
+                    return result[0]["generated_text"].strip()
+                elif "text" in result[0]:
+                    return result[0]["text"].strip()
+            elif isinstance(result, dict):
+                if "generated_text" in result:
+                    return result["generated_text"].strip()
+                elif "text" in result:
+                    return result["text"].strip()
+            return str(result).strip()
+        else:
+            return f"Hugging Face API error: {response.status_code} - {response.text}"
+    
+    def _query_local(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """Query local LLM server (e.g., llama.cpp server, text-generation-webui, etc.)"""
+        # This is a placeholder - actual implementation would depend on the local server
+        # For example, if using llama.cpp server with OpenAI-compatible API:
+        api_base = os.environ.get("JAVIS_LLM_API_BASE", "http://localhost:8080/v1")
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        # Some local servers don't require API key, but we can include if provided
+        if CONFIG["llm_api_key"] and CONFIG["llm_api_key"] != "not-needed-for-local":
+            headers["Authorization"] = f"Bearer {CONFIG['llm_api_key']}"
+        
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        
+        data = {
+            "model": CONFIG["llm_model"] or "local-model",
+            "messages": messages,
+            "max_tokens": CONFIG["llm_max_tokens"],
+            "temperature": CONFIG["llm_temperature"]
+        }
+        
+        try:
+            response = requests.post(
+                f"{api_base}/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result["choices"][0]["message"]["content"].strip()
+            else:
+                return f"Local LLM API error: {response.status_code} - {response.text}"
+        except Exception as e:
+            return f"Error connecting to local LLM: {str(e)}"
+    
+    def _learn_fact(self, fact: str, context: str = ""):
+        """Learn a new fact from conversation"""
+        fact_entry = {
+            "fact": fact.strip(),
+            "context": context.strip(),
+            "timestamp": self._get_current_time(),
+            "importance": 1  # Could be enhanced with usage tracking
+        }
+        
+        # Avoid duplicates
+        for existing in self.learned_facts:
+            if existing["fact"].lower() == fact.lower():
+                # Update timestamp and maybe increase importance
+                existing["timestamp"] = self._get_current_time()
+                existing["importance"] += 1
+                self._save_learned_facts()
+                return
+        
+        self.learned_facts.append(fact_entry)
+        # Keep only recent facts (limit to 1000)
+        if len(self.learned_facts) > 1000:
+            self.learned_facts = self.learned_facts[-1000:]
+        self._save_learned_facts()
+    
+    def _get_relevant_facts(self, query: str, limit: int = 5) -> List[str]:
+        """Get facts relevant to the current query"""
+        query_lower = query.lower()
+        relevant_facts = []
+        
+        for fact_entry in self.learned_facts:
+            fact_text = fact_entry["fact"].lower()
+            # Simple relevance check: common words
+            query_words = set(query_lower.split())
+            fact_words = set(fact_text.split())
+            common_words = query_words.intersection(fact_words)
+            
+            if len(common_words) >= 2:  # At least 2 words in common
+                relevant_facts.append((fact_entry["fact"], len(common_words)))
+        
+        # Sort by relevance (number of common words) descending
+        relevant_facts.sort(key=lambda x: x[1], reverse=True)
+        
+        # Return just the facts, up to limit
+        return [fact for fact, _ in relevant_facts[:limit]]
     
     def _analyze_dataset(self, dataset_name: str) -> str:
         """Provide analysis of a sample dataset"""
@@ -354,6 +776,33 @@ Error getting detailed info: {str(e)}"""
                     result += f"   • {field}: {len(values)} unique values (e.g., {values_str}...)\n"
         
         return result
+    
+    @property
+    def sample_datasets(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Return sample datasets for demonstration purposes"""
+        return {
+            "employees": [
+                {"id": 1, "name": "Alice Smith", "department": "Engineering", "salary": 75000, "years_of_experience": 5},
+                {"id": 2, "name": "Bob Johnson", "department": "Marketing", "salary": 65000, "years_of_experience": 3},
+                {"id": 3, "name": "Carol Davis", "department": "Engineering", "salary": 82000, "years_of_experience": 7},
+                {"id": 4, "name": "David Wilson", "department": "Sales", "salary": 60000, "years_of_experience": 2},
+                {"id": 5, "name": "Eve Brown", "department": "HR", "salary": 58000, "years_of_experience": 4}
+            ],
+            "sales": [
+                {"date": "2023-01-01", "product": "Widget A", "quantity": 10, "price": 15.99, "total": 159.90},
+                {"date": "2023-01-02", "product": "Widget B", "quantity": 5, "price": 29.99, "total": 149.95},
+                {"date": "2023-01-03", "product": "Widget A", "quantity": 8, "price": 15.99, "total": 127.92},
+                {"date": "2023-01-04", "product": "Widget C", "quantity": 3, "price": 49.99, "total": 149.97},
+                {"date": "2023-01-05", "product": "Widget B", "quantity": 7, "price": 29.99, "total": 209.93}
+            ],
+            "products": [
+                {"id": 1, "name": "Laptop Pro", "category": "Electronics", "price": 1299.99, "stock": 50},
+                {"id": 2, "name": "Wireless Mouse", "category": "Electronics", "price": 29.99, "stock": 200},
+                {"id": 3, "name": "Office Chair", "category": "Furniture", "price": 199.99, "stock": 75},
+                {"id": 4, "name": "Desk Lamp", "category": "Home", "price": 39.99, "stock": 150},
+                {"id": 5, "name": "Coffee Mug", "category": "Kitchen", "price": 12.99, "stock": 300}
+            ]
+        }
     
     def _list_files(self, directory: str = ".") -> str:
         """List files in a directory"""
@@ -510,6 +959,7 @@ Error getting detailed info: {str(e)}"""
             if match:
                 class_name = match.group(1)
             elif "called" in instruction_lower:
+                # Try to get name after "called"
                 parts = instruction_lower.split("called")
                 if len(parts) > 1:
                     potential_name = parts[1].strip().split()[0]
@@ -523,7 +973,7 @@ Error getting detailed info: {str(e)}"""
             # Wrap the main logic in try-except
             lines = original_content.split('\n')
             if len(lines) > 0 and not original_content.strip().startswith('try:'):
-                # Simple wrapping: indent everything and wrap in try-exit
+                # Simple wrapping: indent everything and wrap in try-except
                 indented = ['    ' + line if line.strip() != '' else line for line in lines]
                 suggestion = "try:\n" + '\n'.join(indented) + "\nexcept Exception as e:\n    print(f\"An error occurred: {e}\")\n    # Consider logging or re-raising\n"
                 return suggestion
@@ -612,27 +1062,6 @@ if __name__ == "__main__":
                 pass
             return f"Error executing code: {str(e)}"
     
-    # Sample datasets for demonstration
-    @property
-    def sample_datasets(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Return sample datasets for demonstration purposes"""
-        return {
-            "employees": [
-                {"id": 1, "name": "Alice Smith", "department": "Engineering", "salary": 75000, "years_of_experience": 5},
-                {"id": 2, "name": "Bob Johnson", "department": "Marketing", "salary": 65000, "years_of_experience": 3},
-                {"id": 3, "name": "Carol Davis", "department": "Engineering", "salary": 82000, "years_of_experience": 7},
-                {"id": 4, "name": "David Wilson", "department": "Sales", "salary": 60000, "years_of_experience": 2},
-                {"id": 5, "name": "Eve Brown", "department": "HR", "salary": 58000, "years_of_experience": 4}
-            ],
-            "sales": [
-                {"date": "2023-01-01", "product": "Widget A", "quantity": 10, "price": 15.99, "total": 159.90},
-                {"date": "2023-01-02", "product": "Widget B", "quantity": 5, "price": 29.99, "total": 149.95},
-                {"date": "2023-01-03", "product": "Widget A", "quantity": 8, "price": 15.99, "total": 127.92},
-                {"date": "2023-01-04", "product": "Widget C", "quantity": 3, "price": 49.99, "total": 149.97},
-                {"date": "2023-01-05", "product": "Widget B", "quantity": 7, "price": 29.99, "total": 209.93}
-            ]
-        }
-    
     def _process_command(self, user_input: str) -> Optional[str]:
         """Process special commands"""
         command = user_input.strip().lower()
@@ -662,6 +1091,18 @@ if __name__ == "__main__":
                     return "No NVIDIA GPU detected via common methods (nvidia-smi, lspci). You may still have a GPU, but it wasn't detected by these tools."
             return self._get_system_info()
         
+        # Git info command
+        if command in ['github', 'repo', 'git']:
+            return self._get_git_info()
+        
+        # LLM configuration commands
+        if command == 'llm status':
+            return self._get_llm_status()
+        if command.startswith('llm set '):
+            return self._set_llm_config(user_input[8:].strip())
+        if command == 'llm providers':
+            return self._get_llm_providers_info()
+        
         # Calculator
         if command.startswith('calc '):
             expression = command[5:].strip()
@@ -689,6 +1130,58 @@ if __name__ == "__main__":
                 return "Usage: write <filename> <content>"
             filename, content = parts[0], parts[1]
             return self._write_file(filename, content)
+        
+        # Learning commands
+        if command.startswith('learn '):
+            fact = command[6:].strip()
+            if not fact:
+                return "Usage: learn <fact to remember>"
+            self._learn_fact(fact, "User explicitly taught this")
+            return f"✅ I've learned: '{fact}'"
+        
+        if command == 'recall':
+            if not self.learned_facts:
+                return "I haven't learned any facts yet. Use 'learn <fact>' to teach me something."
+            # Show recent facts
+            recent_facts = self.learned_facts[-5:] if len(self.learned_facts) >= 5 else self.learned_facts
+            result = "🧠 **Things I've Learned:**\n"
+            for i, fact_entry in enumerate(reversed(recent_facts), 1):
+                result += f"{i}. {fact_entry['fact']} (learned {fact_entry['timestamp']})\n"
+            if len(self.learned_facts) > 5:
+                result += f"\n... and {len(self.learned_facts) - 5} more facts. Use 'learn <fact>' to add more."
+            return result
+        
+        if command.startswith('forget '):
+            fact_to_forget = command[7:].strip()
+            if not fact_to_forget:
+                return "Usage: forget <fact to remove>"
+            # Find and remove matching facts
+            original_count = len(self.learned_facts)
+            self.learned_facts = [f for f in self.learned_facts if f["fact"].lower() != fact_to_forget.lower()]
+            removed_count = original_count - len(self.learned_facts)
+            if removed_count > 0:
+                self._save_learned_facts()
+                return f"🗑️ Forgot {removed_count} instance(s) of: '{fact_to_forget}'"
+            else:
+                return f"I don't recall learning: '{fact_to_forget}'"
+        
+        # Knowledge management
+        if command.startswith('teach '):
+            parts = command[6:].split(' ', 1)
+            if len(parts) < 2:
+                return "Usage: teach <topic> <explanation>"
+            topic, explanation = parts[0].strip(), parts[1].strip()
+            self.custom_knowledge[topic.lower()] = explanation
+            self._save_custom_knowledge()
+            return f"📚 I've added knowledge about '{topic}': {explanation}"
+        
+        if command == 'knowledge':
+            if not self.custom_knowledge:
+                return "No custom knowledge has been added yet. Use 'teach <topic> <explanation>' to add knowledge."
+            result = "📚 **Custom Knowledge Base:**\n"
+            for topic, explanation in self.custom_knowledge.items():
+                result += f"• {topic}: {explanation}\n"
+            return result
         
         # Code assistance commands
         if command.startswith('code '):
@@ -727,6 +1220,41 @@ if __name__ == "__main__":
                 dataset_info.append(f"• {name}: {len(data)} records")
             return f"📊 Available datasets:\n" + "\n".join(dataset_info) + "\nUse 'stats <dataset_name>' to analyze a dataset."
         
+        # Preferences
+        if command.startswith('set '):
+            parts = command[4:].split(' ', 1)
+            if len(parts) < 2:
+                return "Usage: set <preference> <value>\nExample: set verbosity high"
+            key, value = parts[0].strip(), parts[1].strip()
+            if key in self.user_preferences:
+                # Try to convert value to appropriate type
+                old_value = self.user_preferences[key]
+                if isinstance(old_value, bool):
+                    self.user_preferences[key] = value.lower() in ['true', 'yes', '1', 'on']
+                elif isinstance(old_value, int):
+                    try:
+                        self.user_preferences[key] = int(value)
+                    except ValueError:
+                        return f"Error: {key} expects an integer value."
+                elif isinstance(old_value, float):
+                    try:
+                        self.user_preferences[key] = float(value)
+                    except ValueError:
+                        return f"Error: {key} expects a numeric value."
+                else:
+                    self.user_preferences[key] = value
+                self._save_user_preferences()
+                return f"✅ Setting '{key}' updated to: {self.user_preferences[key]}"
+            else:
+                return f"Unknown setting: {key}. Available settings: {', '.join(self.user_preferences.keys())}"
+        
+        if command == 'preferences':
+            result = "⚙️ **User Preferences:**\n"
+            for key, value in self.user_preferences.items():
+                result += f"• {key}: {value}\n"
+            result += "\nUse 'set <key> <value>' to change a preference."
+            return result
+        
         # Conversation history
         if command == 'history':
             if not self.conversation_history:
@@ -743,13 +1271,25 @@ if __name__ == "__main__":
 Version: {self.version}
 Created by: {self.creator}
 Session started: {self.session_start.strftime('%Y-%m-%d %H:%M:%S')}
-Capabilities: Conversational AI, code assistance, system diagnostics (including GPU), file operations, data analysis
-Currently chatting with: {self.user_name or 'Anonymous'}"""
+Capabilities: Conversational AI, code assistance, system diagnostics (including GPU), file operations, data analysis, persistent learning, LLM integration
+Currently chatting with: {self.user_name or 'Anonymous'}
+Learned facts: {len(self.learned_facts)}
+Custom knowledge entries: {len(self.custom_knowledge)}
+LLM Provider: {CONFIG['llm_provider'] or 'None'}"""
         
         # Reset conversation
         if command in ['reset', 'clear history']:
             self.conversation_history = []
             return "Conversation history cleared. Fresh start!"
+        
+        # Stats
+        if command == 'stats':
+            return f"""📊 **JAVIS Statistics**
+Session started: {self.session_start.strftime('%Y-%m-%d %H:%M:%S')}
+Conversation turns: {len(self.conversation_history)}
+Learned facts: {len(self.learned_facts)}
+Custom knowledge items: {len(self.custom_knowledge)}
+User preferences: {len(self.user_preferences)} settings"""
         
         return None  # Not a command, let AI handle it
     
@@ -813,7 +1353,7 @@ Currently chatting with: {self.user_name or 'Anonymous'}"""
     
     def _get_help_text(self) -> str:
         """Return help text"""
-        return """🤖 **JAVIS - Just A Very Intelligent System - Available Commands**
+        return """🤖 **JAVIS - Just A Very Intelligent System (Enhanced) - Available Commands**
 
 **General Chat:**
 Just type your question or message naturally!
@@ -825,11 +1365,26 @@ Just type your question or message naturally!
 • `date` - Show current date
 • `system` or `sysinfo` - Show system information
 • `gpu` - Show GPU/NVIDIA information specifically
+• `github` or `repo` or `git` - Show Git repository information
 • `history` - Show recent conversation history
 • `about` or `whoami` - Information about me
 • `settings` - Show current settings
 • `reset` or `clear history` - Clear conversation history
+• `stats` - Show usage statistics
 • `exit`, `quit`, `bye` - End the conversation
+
+**LLM Configuration:**
+• `llm status` - Show current LLM configuration
+• `llm providers` - Show available LLM providers and setup instructions
+• `llm set <provider> <api_key> [model]` - Configure LLM provider
+  Example: `llm set openai sk-... gpt-4`
+
+**Learning & Memory:**
+• `learn <fact>` - Teach me a fact to remember
+• `recall` - Show what I've learned
+• `forget <fact>` - Make me forget a specific fact
+• `teach <topic> <explanation>` - Add custom knowledge
+• `knowledge` - Show my custom knowledge base
 
 **Calculations:**
 • `calc <expression>` - Calculate mathematical expressions
@@ -852,8 +1407,13 @@ Just type your question or message naturally!
 **Data Analysis:**
 • `datasets` - Show available sample datasets
 • `stats <dataset_name>` - Analyze a sample dataset
-  Available: employees, sales
+  Available: employees, sales, products
   Example: `stats employees`
+
+**Preferences:**
+• `set <key> <value>` - Set a user preference
+  Example: set verbosity high
+• `preferences` - Show all current preferences
 
 **Tips:**
 • Be specific with your questions for better answers
@@ -861,208 +1421,7 @@ Just type your question or message naturally!
 • Try asking: "What is machine learning?" or "How do I optimize a SQL query?" or "Explain this code: [snippet]"
 • Use natural language for code requests: "Add error handling to this file" or "Create a class for a user profile"
 • For GPU info: use the `gpu` command
+• For Git info: use the `github` or `repo` command
+• I can learn from our conversations! Use `learn <fact>` to teach me things
 • All code execution happens in a safe sandbox directory
 """
-    
-    def process_message(self, user_input: str) -> str:
-        """Process user message and generate response"""
-        # Store original input for history
-        original_input = user_input
-        
-        # Check if it's a command first
-        command_response = self._process_command(user_input)
-        if command_response is not None:
-            # Store in history
-            self.conversation_history.append((original_input, command_response))
-            return command_response
-        
-        # Not a command, process as natural language
-        user_input_lower = user_input.lower().strip()
-        
-        # Handle greetings
-        if any(greeting in user_input_lower for greeting in ['hello', 'hi', 'hey', 'greetings', 'good morning', 'good afternoon', 'good evening']):
-            response = random.choice(self.greetings)
-            if self.user_name:
-                response = f"Hello {self.user_name}! " + response[len("Hello!"):]
-        
-        # Handle farewells
-        elif any(farewell in user_input_lower for farewell in ['bye', 'goodbye', 'see you', 'farewell', 'exit', 'quit']):
-            response = random.choice(self.farewells)
-        
-        # Handle name setting
-        elif 'my name is' in user_input_lower or 'i am' in user_input_lower or 'im' in user_input_lower:
-            # Simple name extraction
-            words = user_input.split()
-            for i, word in enumerate(words):
-                if word.lower() in ['is', 'am', 'im'] and i+1 < len(words):
-                    # Extract name from remaining words
-                    name_parts = words[i+1:]
-                    potential_name = ' '.join(name_parts).strip('.,!?')
-                    if potential_name and len(potential_name) < 20:  # Reasonable name length
-                        self.user_name = potential_name
-                        response = f"Nice to meet you, {self.user_name}! How can I assist you today?"
-                        break
-            else:
-                response = "Hello! I'm here to help. What's your name?"
-        
-        # Handle thanks
-        elif any(thanks in user_input_lower for thanks in ['thank', 'thanks', 'thx']):
-            responses = [
-                "You're welcome! Happy to help.",
-                "My pleasure! Let me know if you need anything else.",
-                "Anytime! That's what I'm here for.",
-                "You're very welcome! Feel free to ask more questions."
-            ]
-            response = random.choice(responses)
-        
-        # Handle jokes
-        elif 'joke' in user_input_lower or 'funny' in user_input_lower or 'laugh' in user_input_lower:
-            response = f"😄 {random.choice(self.jokes)}"
-        
-        # Handle quotes/inspiration
-        elif any(word in user_input_lower for word in ['quote', 'inspire', 'motivation', 'inspirational', 'wise', 'wisdom']):
-            response = f"💫 \"{random.choice(self.quotes)}\""
-        
-        # Handle weather (simulated)
-        elif 'weather' in user_input_lower:
-            conditions = ['sunny', 'partly cloudy', 'cloudy', 'light rain', 'showers', 'clear', 'foggy', 'stormy']
-            temp = random.randint(5, 35)
-            condition = random.choice(conditions)
-            response = f"🌤️ Simulated weather: {condition.title()}, {temp}°C\n*(Note: I don't have access to real-time weather data)*"
-        
-        # Handle knowledge questions
-        else:
-            knowledge_response = self._get_knowledge(user_input)
-            if knowledge_response:
-                response = f"📚 {knowledge_response}"
-            else:
-                # Try to handle as a general question
-                response = self._generate_general_response(user_input)
-        
-        # Store in conversation history
-        self.conversation_history.append((original_input, response))
-        
-        return response
-    
-    def _generate_general_response(self, user_input: str) -> str:
-        """Generate a general response for unrecognized queries"""
-        user_lower = user_input.lower()
-        
-        # Check for question words
-        if any(word in user_lower for word in ['what', 'how', 'why', 'when', 'where', 'who', 'which']):
-            responses = [
-                f"That's an interesting question about '{user_input}'. While I don't have specific information on that topic in my knowledge base, I can help with coding, explain AI/programming concepts, analyze data, or assist with other tasks. Would you like help with something else?",
-                f"I'm not sure I have detailed information about '{user_input}' in my current knowledge base. However, I'm good at math, can explain technical concepts, help with file operations, analyze datasets, suggest code improvements, or just chat. What would you like to try?",
-                f"That's a thoughtful question! My expertise is more focused on AI concepts, technical topics, software development, and practical assistance like calculations and code assistance. Could you rephrase your question or ask about something I might know more about?"
-            ]
-            return random.choice(responses)
-        else:
-            # Statement or comment
-            responses = [
-                f"I see. Thanks for sharing that about '{user_input}'. Is there something specific you'd like me to help you with?",
-                f"Interesting point about '{user_input}'. Would you like to explore that further, or is there something else I can assist you with?",
-                f"Thanks for telling me! If you have any questions or need help with calculations, information, file operations, data analysis, code assistance, or just want to chat, I'm here.",
-                f"That's noteworthy! Is there a particular aspect you'd like to dive deeper into, or shall we talk about something else?"
-            ]
-            return random.choice(responses)
-    
-    def start_chat(self):
-        """Start the interactive chat session"""
-        # Clear screen for clean start
-        os.system('cls' if os.name == 'nt' else 'clear')
-        
-        print("=" * 70)
-        print(f"🤖 {self.name} v{self.version}")
-        print("   Just A Very Intelligent System")
-        print("=" * 70)
-        print("Type 'help' for available commands, or just start chatting!")
-        print("Type 'exit', 'quit', or 'bye' to end the conversation.")
-        print("-" * 70)
-        
-        # Initial greeting
-        print(f"\n{self.name}: {random.choice(self.greetings)}")
-        print("-" * 70)
-        
-        # Main chat loop
-        while True:
-            try:
-                # Get user input
-                user_input = input("\n> ").strip()
-                
-                # Check for exit commands
-                if user_input.lower() in ['exit', 'quit', 'bye', 'goodbye']:
-                    farewell = random.choice(self.farewells)
-                    if self.user_name:
-                        farewell = f"Goodbye {self.user_name}! {farewell[len('Goodbye!'):]}"
-                    print(f"\n{self.name}: {farewell}")
-                    break
-                
-                # Skip empty input
-                if not user_input:
-                    continue
-                
-                # Process and get response
-                response = self.process_message(user_input)
-                
-                # Display response
-                print(f"\n{self.name}: {response}")
-                print("-" * 50)
-                
-            except KeyboardInterrupt:
-                print(f"\n\n{self.name}: Goodbye! (Interrupted)")
-                break
-            except EOFError:
-                # Handle non-interactive environments gracefully
-                print(f"\n\n{self.name}: Session ended. Goodbye!")
-                break
-            except Exception as e:
-                print(f"\n{self.name}: Sorry, I encountered an error: {str(e)}")
-                print("Please try again or type 'help' for assistance.")
-
-# ==================== MAIN EXECUTION ====================
-
-def main():
-    """Main function to start the assistant"""
-    assistant = JAVIS()
-    assistant.start_chat()
-
-if __name__ == "__main__":
-    # Check if we're running in a terminal that supports input
-    if not sys.stdin.isatty():
-        print("Note: For full interactive experience, run this in a terminal/command prompt.")
-        print("Starting in demo mode...\n")
-        
-        # Demo mode for non-interactive environments
-        assistant = JAVIS()
-        print(f"🤖 {assistant.name} v{assistant.version}")
-        print("=" * 50)
-        print("Demo: Sample interactions")
-        print("-" * 50)
-        
-        # Show a few sample interactions
-        samples = [
-            "Hello!",
-            "What is artificial intelligence?",
-            "Explain machine learning",
-            "gpu",
-            "code main.py \"add a function to calculate factorial\"",
-            "run \"print('Hello from JAVIS!')\"",
-            "Thanks!",
-            "Bye"
-        ]
-        
-        for sample in samples:
-            print(f"\n> {sample}")
-            response = assistant.process_message(sample)
-            print(f"{assistant.name}: {response}")
-            print("-" * 30)
-        
-        print("\n💡 To use the full interactive version, run this script in your terminal!")
-    else:
-        try:
-            main()
-        except KeyboardInterrupt:
-            print("\n\nChatbot terminated by user. Goodbye!")
-        except Exception as e:
-            print(f"\nFatal error: {str(e)}")
-            sys.exit(1)
